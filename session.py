@@ -8,3 +8,6 @@ def initialize_session_state():
 
     if SESS_UPLOADED_IMAGES not in st.session_state:
         st.session_state[SESS_UPLOADED_IMAGES] = {}
+
+    if 'file_uploader_key' not in st.session_state:
+        st.session_state['file_uploader_key'] = 0

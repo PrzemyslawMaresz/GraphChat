@@ -12,6 +12,7 @@ from gemini_handler import generate_chat_response
 
 
 def render_sidebar():
+
     with st.sidebar:
         st.header("Configuration")
 
@@ -47,14 +48,13 @@ def render_sidebar():
         st.caption("Upload chart images and ask questions about them.")
         st.markdown(f"Using model: **{GEMINI_MODEL_NAME}**")
 
-
 def render_image_uploader():
     st.subheader("Upload Your Charts")
     uploaded_files = st.file_uploader(
         "Choose image files (PNG, JPG, JPEG, WEBP):",
         type=SUPPORTED_IMAGE_TYPES,
         accept_multiple_files=True,
-        key="file_uploader_widget_main_app"
+        key=f"file_uploader_widget_main_app_{st.session_state['file_uploader_key']}"
     )
 
     if uploaded_files:
@@ -85,9 +85,10 @@ def render_image_uploader():
                 except Exception as e:
                     st.error(
                         f"Error processing file '{uploaded_file.name}': {e}. It might not be a valid image format.")
-        if new_files_processed:
-            st.rerun()
 
+        if new_files_processed:
+            st.session_state['file_uploader_key'] += 1
+            st.rerun()
 
 def render_analysis_sections():
     if not st.session_state[SESS_UPLOADED_IMAGES]:
