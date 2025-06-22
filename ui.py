@@ -8,11 +8,15 @@ from app_config import (
     GEMINI_MODEL_NAME,
     SUPPORTED_IMAGE_TYPES
 )
-from gemini_handler import generate_chat_response
+from gemini_handler import (
+    generate_chat_response,
+    get_response_for_line_chart,
+    get_response_for_bar_chart,
+    get_response_for_scatter_plot
+)
 
 
 def render_sidebar():
-
     with st.sidebar:
         st.header("Configuration")
 
@@ -47,6 +51,7 @@ def render_sidebar():
         st.markdown("---")
         st.caption("Upload chart images and ask questions about them.")
         st.markdown(f"Using model: **{GEMINI_MODEL_NAME}**")
+
 
 def render_image_uploader():
     st.subheader("Upload Your Charts")
@@ -90,6 +95,7 @@ def render_image_uploader():
             st.session_state['file_uploader_key'] += 1
             st.rerun()
 
+
 def render_analysis_sections():
     if not st.session_state[SESS_UPLOADED_IMAGES]:
         st.info("No images uploaded yet. Use the uploader above to add some charts to analyze.")
@@ -109,32 +115,84 @@ def render_analysis_sections():
 
             with col2:
                 st.write(f"**Chat with Gemini about: __{img_data['name']}__**")
-
                 for message in img_data['chat_log']:
                     avatar_icon = "❔" if message["role"] == "user" else "👾"
                     with st.chat_message(message["role"], avatar=avatar_icon):
                         st.markdown(message["parts"][0])
 
-
-                user_prompt = st.chat_input(
-                    f"Ask a question about {img_data['name']}...",
-                    key=f"chat_input_img_{img_id}"
+                st.write("")  # Spacer
+                analysis_mode = st.radio(
+                    "Choose analysis method:",
+                    ("Manual Question", "Line Chart: Point Detection", "Bar Chart: Value Extraction", "Scatter Plot: Point Extraction"),
+                    key=f"analysis_mode_radio_{img_id}"
                 )
 
-                if user_prompt:
-                    current_api_key = st.session_state.get(SESS_API_KEY)
-                    if not current_api_key:
-                        st.warning(
-                            "Please set your Gemini API Key in the sidebar to enable chat functionality.", icon="🔑")
-                    else:
-                        img_data['chat_log'].append({"role": "user", "parts": [user_prompt]})
+                if analysis_mode == "Manual Question":
+                    user_prompt = st.chat_input(f"Ask a question about {img_data['name']}...", key=f"chat_input_img_{img_id}")
+                    if user_prompt:
+                        current_api_key = st.session_state.get(SESS_API_KEY)
+                        if not current_api_key:
+                            st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                        else:
+                            img_data['chat_log'].append({"role": "user", "parts": [user_prompt]})
+                            with st.spinner("Gemini is thinking..."):
+                                response_text = generate_chat_response(
+                                    api_key=current_api_key, pil_image=img_data['pil_image'], user_prompt=user_prompt
+                                )
+                            img_data['chat_log'].append({"role": "model", "parts": [response_text]})
+                            st.rerun()
 
-                        with st.spinner("Gemini is thinking..."):
-                            response_text = generate_chat_response(
-                                api_key=current_api_key,
-                                pil_image=img_data['pil_image'],
-                                user_prompt=user_prompt
-                            )
+                elif analysis_mode == "Line Chart: Point Detection":
+                    with st.form(key=f"line_chart_form_{img_id}"):
+                        num_points = st.number_input("Enter the number of points to detect:", min_value=2, step=1, value=10)
+                        submitted = st.form_submit_button("Detect Points")
+                        if submitted:
+                            current_api_key = st.session_state.get(SESS_API_KEY)
+                            if not current_api_key:
+                                st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            else:
+                                user_display_message = f"Request for detection of {num_points} points on a line chart."
+                                img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
+                                with st.spinner("Gemini is analyzing the line chart..."):
+                                    response_text = get_response_for_line_chart(
+                                        api_key=current_api_key, pil_image=img_data['pil_image'], num_points=num_points
+                                    )
+                                img_data['chat_log'].append({"role": "model", "parts": [response_text]})
+                                st.rerun()
 
-                        img_data['chat_log'].append({"role": "model", "parts": [response_text]})
-                        st.rerun()
+                elif analysis_mode == "Bar Chart: Value Extraction":
+                    with st.form(key=f"bar_chart_form_{img_id}"):
+                        submitted = st.form_submit_button("Extract Bar Values")
+                        if submitted:
+                            current_api_key = st.session_state.get(SESS_API_KEY)
+                            if not current_api_key:
+                                st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            else:
+                                user_display_message = "Request for bar chart value extraction."
+                                img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
+                                with st.spinner("Gemini is analyzing the bar chart..."):
+                                    response_text = get_response_for_bar_chart(
+                                        api_key=current_api_key, pil_image=img_data['pil_image']
+                                    )
+                                img_data['chat_log'].append({"role": "model", "parts": [response_text]})
+                                st.rerun()
+
+                elif analysis_mode == "Scatter Plot: Point Extraction":
+                    with st.form(key=f"scatter_plot_form_{img_id}"):
+                        num_points = st.number_input("Enter the number of points to detect:", min_value=2, step=1,value=10)
+                        submitted = st.form_submit_button("Extract All Points")
+                        if submitted:
+                            current_api_key = st.session_state.get(SESS_API_KEY)
+                            if not current_api_key:
+                                st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            else:
+                                user_display_message = f"Request for detection of {num_points} points on a scatter plot."
+                                img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
+                                with st.spinner("Gemini is analyzing the scatter plot..."):
+                                    response_text = get_response_for_scatter_plot(
+                                        api_key=current_api_key,
+                                        pil_image=img_data['pil_image'],
+                                        num_points=num_points
+                                    )
+                                img_data['chat_log'].append({"role": "model", "parts": [response_text]})
+                                st.rerun()
