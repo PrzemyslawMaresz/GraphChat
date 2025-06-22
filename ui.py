@@ -67,7 +67,7 @@ def render_image_uploader():
         for uploaded_file in uploaded_files:
             is_duplicate = any(
                 img_data['name'] == uploaded_file.name and
-                len(img_data['bytes_data']) == uploaded_file.size
+                img_data.get('size') == uploaded_file.size
                 for img_data in st.session_state[SESS_UPLOADED_IMAGES].values()
             )
 
@@ -82,6 +82,7 @@ def render_image_uploader():
                     st.session_state[SESS_UPLOADED_IMAGES][img_id] = {
                         "id": img_id,
                         "name": uploaded_file.name,
+                        "size": uploaded_file.size,
                         "bytes_data": bytes_data,
                         "pil_image": pil_image,
                         "chat_log": []
@@ -89,7 +90,8 @@ def render_image_uploader():
                     new_files_processed = True
                 except Exception as e:
                     st.error(
-                        f"Error processing file '{uploaded_file.name}': {e}. It might not be a valid image format.")
+                        f"Error processing file '{uploaded_file.name}': {e}. It might not be a valid image format."
+                    )
 
         if new_files_processed:
             st.session_state['file_uploader_key'] += 1
@@ -108,7 +110,29 @@ def render_analysis_sections():
             col1, col2 = st.columns([0.4, 0.6])
 
             with col1:
-                st.image(img_data['bytes_data'], caption=img_data['name'], use_container_width=True)
+                if 'pil_image' not in img_data or img_data['pil_image'] is None:
+                    if 'bytes_data' in img_data and img_data['bytes_data']:
+                        try:
+                            current_bytes_data = img_data['bytes_data']
+                            if isinstance(current_bytes_data, list):
+                                current_bytes_data = bytes(current_bytes_data)
+
+                            img_data['pil_image'] = Image.open(io.BytesIO(current_bytes_data))
+                        except Exception as e:
+                            st.error(f"Could not reconstruct image for '{img_data['name']}': {e}")
+                            if st.button(f"Remove Corrupted Image", key=f"remove_corrupted_{img_id}"):
+                                del st.session_state[SESS_UPLOADED_IMAGES][img_id]
+                                st.rerun()
+                            continue
+                    else:
+                        st.warning(f"No valid image data available for '{img_data['name']}'.")
+                        continue
+
+                if 'pil_image' in img_data and img_data['pil_image'] is not None:
+                    st.image(img_data['pil_image'], caption=img_data['name'], use_container_width=True)
+                else:
+                    st.warning(f"Image '{img_data['name']}' could not be displayed.")
+
                 if st.button(f"Remove Image", key=f"delete_button_img_{img_id}"):
                     del st.session_state[SESS_UPLOADED_IMAGES][img_id]
                     st.rerun()
@@ -120,12 +144,14 @@ def render_analysis_sections():
                     with st.chat_message(message["role"], avatar=avatar_icon):
                         st.markdown(message["parts"][0])
 
-                st.write("")  # Spacer
+                st.write("")
                 analysis_mode = st.radio(
                     "Choose analysis method:",
                     ("Manual Question", "Line Chart: Point Detection", "Bar Chart: Value Extraction", "Scatter Plot: Point Extraction"),
                     key=f"analysis_mode_radio_{img_id}"
                 )
+
+                current_pil_image = img_data.get('pil_image')
 
                 if analysis_mode == "Manual Question":
                     user_prompt = st.chat_input(f"Ask a question about {img_data['name']}...", key=f"chat_input_img_{img_id}")
@@ -133,11 +159,13 @@ def render_analysis_sections():
                         current_api_key = st.session_state.get(SESS_API_KEY)
                         if not current_api_key:
                             st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                        elif not current_pil_image:
+                            st.warning("Image data not available for analysis.")
                         else:
                             img_data['chat_log'].append({"role": "user", "parts": [user_prompt]})
                             with st.spinner("Gemini is thinking..."):
                                 response_text = generate_chat_response(
-                                    api_key=current_api_key, pil_image=img_data['pil_image'], user_prompt=user_prompt
+                                    api_key=current_api_key, pil_image=current_pil_image, user_prompt=user_prompt
                                 )
                             img_data['chat_log'].append({"role": "model", "parts": [response_text]})
                             st.rerun()
@@ -150,12 +178,14 @@ def render_analysis_sections():
                             current_api_key = st.session_state.get(SESS_API_KEY)
                             if not current_api_key:
                                 st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            elif not current_pil_image:
+                                st.warning("Image data not available for analysis.")
                             else:
                                 user_display_message = f"Request for detection of {num_points} points on a line chart."
                                 img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
                                 with st.spinner("Gemini is analyzing the line chart..."):
                                     response_text = get_response_for_line_chart(
-                                        api_key=current_api_key, pil_image=img_data['pil_image'], num_points=num_points
+                                        api_key=current_api_key, pil_image=current_pil_image, num_points=num_points
                                     )
                                 img_data['chat_log'].append({"role": "model", "parts": [response_text]})
                                 st.rerun()
@@ -167,12 +197,14 @@ def render_analysis_sections():
                             current_api_key = st.session_state.get(SESS_API_KEY)
                             if not current_api_key:
                                 st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            elif not current_pil_image:
+                                st.warning("Image data not available for analysis.")
                             else:
                                 user_display_message = "Request for bar chart value extraction."
                                 img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
                                 with st.spinner("Gemini is analyzing the bar chart..."):
                                     response_text = get_response_for_bar_chart(
-                                        api_key=current_api_key, pil_image=img_data['pil_image']
+                                        api_key=current_api_key, pil_image=current_pil_image
                                     )
                                 img_data['chat_log'].append({"role": "model", "parts": [response_text]})
                                 st.rerun()
@@ -185,13 +217,15 @@ def render_analysis_sections():
                             current_api_key = st.session_state.get(SESS_API_KEY)
                             if not current_api_key:
                                 st.warning("Please set your Gemini API Key in the sidebar.", icon="🔑")
+                            elif not current_pil_image:
+                                st.warning("Image data not available for analysis.")
                             else:
                                 user_display_message = f"Request for detection of {num_points} points on a scatter plot."
                                 img_data['chat_log'].append({"role": "user", "parts": [user_display_message]})
                                 with st.spinner("Gemini is analyzing the scatter plot..."):
                                     response_text = get_response_for_scatter_plot(
                                         api_key=current_api_key,
-                                        pil_image=img_data['pil_image'],
+                                        pil_image=current_pil_image,
                                         num_points=num_points
                                     )
                                 img_data['chat_log'].append({"role": "model", "parts": [response_text]})
